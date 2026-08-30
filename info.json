@@ -1,0 +1,13 @@
+{
+  "commit": {
+    "commit": "d365ad4d59e954cd3edbae544cd3a2fd85e5d73a",
+    "author": "Bruno Rodrigues <brodriguesco@protonmail.com>",
+    "time": "2026-05-19T06:49:18Z",
+    "files": 1,
+    "merge": false,
+    "message": "updated dev env\n"
+  },
+  "repo": "https://github.com/ropensci/rixpress",
+  "pkg": "rixpress",
+  "time": "2026-08-30T07:20:11Z"
+}

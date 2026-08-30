@@ -1,0 +1,22 @@
+pandoc: 3.8.3
+pkgdown: 2.2.1
+pkgdown_sha: ~
+articles:
+  chronicler: chronicler.html
+  ci: ci.html
+  cmdstanr: cmdstanr.html
+  core-functions: core-functions.html
+  debugging: debugging.html
+  encoding-decoding: encoding-decoding.html
+  gc: gc.html
+  importing-data: importing-data.html
+  intro-concepts: intro-concepts.html
+  polyglot-julia: polyglot-julia.html
+  polyglot: polyglot.html
+  scope: scope.html
+  sub-pipelines: sub-pipelines.html
+  tutorial: tutorial.html
+last_built: 2026-08-30T07:19Z
+urls:
+  reference: https://docs.ropensci.org/rixpress/reference
+  article: https://docs.ropensci.org/rixpress/articles
