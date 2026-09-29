@@ -1,0 +1,381 @@
+# Polyglot Pipelines and Literate Programming
+
+This vignette demonstrates how to build a polyglot pipeline and assumes
+you’ve read
+[`vignette("core-functions")`](https://docs.ropensci.org/rixpress/articles/core-functions.md).
+
+For a video version of this vignette, [click
+here](https://youtu.be/LYtN1aOsTWQ).
+
+You can find all the code of this example
+[here](https://github.com/b-rodrigues/rixpress_demos/tree/master/r_python_quarto).
+The built Quarto document can be viewed
+[here](https://b-rodrigues.github.io/rixpress_demos/r_python_quarto/index.html)
+(the pipeline in this vignette is a slightly simplified version). For
+the Rmd version, look
+[here](https://github.com/b-rodrigues/rixpress_demos/blob/master/r_python_rmd/Readme.md).
+
+For various other examples of polyglot pipelines, check out the folder
+labeled `python_r` in this [github
+repository](https://github.com/b-rodrigues/rixpress_demos/).
+
+## Analysing the mtcars dataset using R and Python
+
+[rixpress](https://docs.ropensci.org/rixpress) makes it easy to write
+polyglot (multilingual) data science pipelines with derivations that run
+R or Python code. This vignette explains how you can easily set up such
+a pipeline.
+
+Let’s assume that you only have `Nix` installed on your system, and no R
+installation (this is the ideal scenario: if you plan to use `Nix`
+full-time for your development environments, you shouldn’t have a
+system-wide installation of R).
+
+Before installing R and R packages for your pipeline, install
+[cachix](https://www.cachix.org/) and configure the `rstats-on-nix`
+cache. This way, pre-compiled, binary packages will be used instead of
+being built from source. Run the following line in a terminal:
+
+``` bash
+nix-env -iA cachix -f https://cachix.org/api/v1/install
+```
+
+then use the cache:
+
+``` bash
+cachix use rstats-on-nix
+```
+
+There might be a message telling you to add your user to a configuration
+file by executing another command. If so, follow the instructions; you
+only need to do this once per machine you want to use
+[rixpress](https://docs.ropensci.org/rixpress) on. Many thanks to
+[Cachix](https://www.cachix.org/) for sponsoring the `rstats-on-nix`
+cache!
+
+Now that the cache is configured, it’s time to bootstrap your
+development environment. Run this line:
+
+    nix-shell --expr "$(curl -sl https://raw.githubusercontent.com/ropensci/rix/main/inst/extdata/default.nix)"
+
+This will drop you into a temporary shell with R and both
+[rix](https://docs.ropensci.org/rix/) and
+[rixpress](https://docs.ropensci.org/rixpress) available. Simply start R
+by typing `R`, and load [rixpress](https://docs.ropensci.org/rixpress)
+and call
+[`rxp_init()`](https://docs.ropensci.org/rixpress/reference/rxp_init.md)
+which will generate two files, `gen-env.R` and `gen-pipeline.R`. You can
+open `gen-env.R` in your favourite text editor and define the execution
+environment there:
+
+``` r
+
+library(rix)
+
+rix(
+  date = "2025-03-31",
+  r_pkgs = c("dplyr", "igraph", "reticulate", "quarto"),
+  git_pkgs = list(
+    package_name = "rixpress",
+    repo_url = "https://github.com/ropensci/rixpress",
+    commit = "HEAD"
+  ),
+  py_conf = list(
+    py_version = "3.12",
+    py_pkgs = c("pandas", "polars", "pyarrow")
+  ),
+  ide = "none",
+  project_path = ".",
+  overwrite = TRUE
+)
+```
+
+Notice the `py_conf` argument to
+[`rix()`](https://docs.ropensci.org/rix/reference/rix.html): this will
+install Python and the listed Python packages in that environment.
+You’ll notice that we add
+[reticulate](https://rstudio.github.io/reticulate/) to the list of R
+packages to install as well; this is primarily for converting data
+between R and Python if you’re not using a universal format like JSON.
+Python build steps are executed in a standard Python shell and do not
+require [reticulate](https://rstudio.github.io/reticulate/) for Python
+code execution itself, so if you’re only using JSON to transfer data,
+[reticulate](https://rstudio.github.io/reticulate/) is not required. If
+you prefer, you can also use `uv` to manage Python and Python packages.
+While this is not a pure Nix solution, it is still useful in cases you
+need a specific Python package that might not be available through Nix,
+as not all PyPI packages are available through Nix. In this case, refer
+to this
+[section](https://docs.ropensci.org/rix/articles/installing-r-packages.html#installing-python-packages-not-available-via-nixpkgs-impure)
+of the *Installing R and Python packages in a Nix environment* vignette
+from [rix](https://docs.ropensci.org/rix/).
+
+Now that you defined the execution environment of the pipeline, you can
+run the `gen-env.R` script, still from the temporary `Nix` shell by
+running `source("gen-env.R")`. This will generate the required
+`default.nix`. Then, quit R and the temporary shell (CTRL-D or
+[`quit()`](https://rdrr.io/r/base/quit.html) in R, `exit` in the
+terminal) and then build the environment defined by the freshly
+generated `default.nix` by typing `nix-build`. This will now build the
+execution environment of the pipeline. You can use this environment to
+work on your project interactively as usual. To learn more, check out
+[`{rix}`](https://docs.ropensci.org/rix/).
+
+You can now edit the pipeline script in `gen-pipeline.R`:
+
+``` r
+
+library(rixpress)
+library(igraph)
+
+list(
+  rxp_py_file(
+    name = mtcars_pl,
+    path = 'data/mtcars.csv',
+    read_function = "lambda x: pl.read_csv(x, separator='|')"
+  ),
+
+  rxp_py(
+    # reticulate doesn't support polars DFs yet, so need to convert
+    # first to pandas DF
+    name = mtcars_pl_am,
+    expr = "mtcars_pl.filter(pl.col('am') == 1).to_pandas()"
+  ),
+
+  rxp_py2r(
+    name = mtcars_am,
+    expr = mtcars_pl_am
+  ),
+
+  rxp_r(
+    name = mtcars_head,
+    expr = my_head(mtcars_am),
+    user_functions = "functions.R"
+  ),
+
+  rxp_r2py(
+    name = mtcars_head_py,
+    expr = mtcars_head
+  ),
+
+  rxp_py(
+    name = mtcars_tail_py,
+    expr = 'mtcars_head_py.tail()'
+  ),
+
+  rxp_py2r(
+    name = mtcars_tail,
+    expr = mtcars_tail_py
+  ),
+
+  rxp_r(
+    name = mtcars_mpg,
+    expr = dplyr::select(mtcars_tail, mpg)
+  ),
+
+  rxp_qmd(
+    name = page,
+    qmd_file = "my_doc/page.qmd",
+    additional_files = c("my_doc/content.qmd", "my_doc/images")
+  )
+) |>
+  rxp_populate(
+    project_path = ".",
+    py_imports = c(polars = "import polars as pl")
+  )
+```
+
+As you can see, it starts by reading in some data using the Python
+`polars` package, and then converts it to an R data frame for further
+manipulation, converts it back to a Python data frame and back to R.
+You’ll notice that at some point the *head* of the data is computed
+using a user-defined function called `my_head()`. User-defined functions
+should all go into a script called `functions.R` or `functions.py` and
+derivations that use them need to be aware of them by setting the
+`user_functions` argument. If derivations need further files to be
+available in the sandbox, these should be listed in the
+`additional_files` argument. A main difference between
+[`rxp_py()`](https://docs.ropensci.org/rixpress/reference/rxp_py.md) and
+[`rxp_r()`](https://docs.ropensci.org/rixpress/reference/rxp_r.md) is
+that Python code should be passed as a string, and not as an expression.
+
+What’s also import for Python is to define how packages should be
+imported. In this case, I want `polars` to be imported using
+`import polars as pl`, so I need to use the `py_imports` argument of
+[`rxp_populate()`](https://docs.ropensci.org/rixpress/reference/rxp_populate.md).
+It is possible to skip this, but then you’d need to write the entire
+package name each time: `polars.read_csv()`. This is sometimes
+mandatory, for example if you want to import a package’s submodule:
+
+``` r
+
+py_imports = c(pillow = "from PIL import Image")
+```
+
+The package is called `pillow`, so
+[rixpress](https://docs.ropensci.org/rixpress) will write the statement
+as `import pillow`, but this will simply not work.
+
+It is also possible to use
+[`adjust_import()`](https://docs.ropensci.org/rixpress/reference/adjust_import.md)
+after the creation of the `pipeline.nix` but more importantly is
+[`add_import()`](https://docs.ropensci.org/rixpress/reference/add_import.md).
+This is required in cases where a built-in Python module needs to be
+loaded, such as `os`. Because the `os` module is not listed in the
+required Python packages in `rix(..., py_conf = ...)` to create the
+execution environment, it won’t get automatically loaded by
+[`rxp_populate()`](https://docs.ropensci.org/rixpress/reference/rxp_populate.md).
+Because of this, if `os` is needed for the pipeline,
+[`add_import()`](https://docs.ropensci.org/rixpress/reference/add_import.md)
+is how you can add it. The
+[`vignette("importing-data")`](https://docs.ropensci.org/rixpress/articles/importing-data.md)
+show such an example.
+
+If you want to use JSON to transfer data between derivations, you should
+use the `encoder` and `decoder` arguments respectively:
+
+``` r
+
+library(rixpress)
+library(igraph)
+
+list(
+  rxp_py_file(
+    name = mtcars_pl,
+    path = "data/mtcars.csv",
+    read_function = "lambda x: pl.read_csv(x, separator='|')"
+  ),
+
+  rxp_py(
+    name = mtcars_pl_am,
+    expr = "mtcars_pl.filter(pl.col('am') == 1)",
+    user_functions = "functions.py",
+    encoder = "serialize_to_json",
+  ),
+
+  rxp_r(
+    name = mtcars_head,
+    expr = my_head(mtcars_pl_am),
+    user_functions = "functions.R",
+    decoder = "jsonlite::fromJSON"
+  ),
+
+  rxp_r(
+    name = mtcars_mpg,
+    expr = dplyr::select(mtcars_head, mpg)
+  )
+) |>
+  rxp_populate(
+    project_path = ".",
+    py_imports = c(polars = "import polars as pl")
+  )
+
+# Plot DAG for CI
+rxp_dag_for_ci()
+```
+
+The Python `serialize_to_json` function is defined in the `functions.py`
+script and looks like this:
+
+    def serialize_to_json(pl_df, path):
+        with open(path, 'w') as f:
+            f.write(pl_df.write_json())
+
+The `encoder` and `decoder` arguments can be used to serialise objects
+using any function, for example `qs::save()` or machine
+learning-specific functions for specific models, such as those from
+`xgboost`.
+
+## Building a Quarto or R Markdown document
+
+The last pipeline I want to discuss builds a Quarto document using
+[`rxp_qmd()`](https://docs.ropensci.org/rixpress/reference/rxp_qmd.md)
+(use
+[`rxp_rmd()`](https://docs.ropensci.org/rixpress/reference/rxp_rmd.md)
+for an R Markdown document). Here again, the `additional_files` argument
+is used to make the derivation aware of required files to build the
+document. Here is what the source of the document looks like:
+
+```` text
+
+---
+title: "Loading Derivations Outputs in a Quarto Doc"
+format:
+  html:
+    embed-resources: true
+    toc: true
+---
+
+![Meme](images/meme.png)
+
+Use `rxp_read()` to show object in the document:
+
+```
+#| eval: true
+
+rixpress::rxp_read("mtcars_head")
+```
+
+```
+#| eval: true
+
+rixpress::rxp_read("mtcars_tail")
+```
+
+```
+#| eval: true
+
+rixpress::rxp_read("mtcars_mpg")
+```
+
+{{< include content.qmd >}}
+
+```
+#| eval: true
+
+rixpress::rxp_read("mtcars_tail_py")
+```
+````
+
+Just like in an interactive session,
+[`rxp_read()`](https://docs.ropensci.org/rixpress/reference/rxp_read.md)
+is used to retrieve the objects from the store. See how I refer to the
+other document `content.qmd` and the image `meme.png`.
+
+If you want to add further arguments to the Quarto command line tool,
+you can use the `args` argument:
+
+``` r
+
+rxp_qmd(
+  name = page,
+  qmd_file = "my_doc/page.qmd",
+  additional_files = c("my_doc/content.qmd", "my_doc/images"),
+  args = "--to typst"
+)
+```
+
+and don’t forget to add `typst` to the list of system packages in the
+call to [`rix()`](https://docs.ropensci.org/rix/reference/rix.html):
+
+``` r
+rix(
+  date = "2025-03-31",
+  r_pkgs = c("dplyr", "igraph", "reticulate", "quarto"),
+  system_pkgs = "typst",
+  git_pkgs = list(...
+```
+
+For more examples, check out [rixpress_demos
+repository](https://github.com/b-rodrigues/rixpress_demos). These
+examples demonstrate additional features of
+[rixpress](https://docs.ropensci.org/rixpress), including:
+
+- [Using the Python ‘xgboost’ library and transferring data to
+  R](https://github.com/b-rodrigues/rixpress_demos/tree/master/r_py_xgboost)
+- [Importing multiple files at
+  once](https://github.com/b-rodrigues/rixpress_demos/tree/master/many_inputs_example)
+- [Using multiple environments instead of a single `default.nix`
+  file](https://github.com/b-rodrigues/rixpress_demos/tree/master/r_multi_envs)
+
+and many others! Don’t hesitate to submit more examples as well!
