@@ -1,0 +1,272 @@
+# Using Chronicler for Error-Tolerant Pipelines
+
+This vignette explains how to use the `{chronicler}` package with
+[rixpress](https://docs.ropensci.org/rixpress) to build error-tolerant
+pipelines, and how to detect silent failures.
+
+## The Problem: Silent Failures
+
+When building data pipelines, errors typically cause immediate failure.
+In [rixpress](https://docs.ropensci.org/rixpress), if a derivation
+throws an error, Nix stops the build and reports what went wrong. This
+is usually desirable—you want to know when something breaks.
+
+But sometimes you want pipelines that *continue* even when parts fail.
+Consider:
+
+- Processing many files where a few might be malformed
+- Exploratory analysis where you want to see what works and what doesn’t
+
+The `{chronicler}` package provides exactly this: functions that capture
+errors and warnings instead of failing, returning a structured result
+that you can inspect later.
+
+## What is {chronicler}?
+
+`{chronicler}` uses the [maybe](https://github.com/armcn/maybe) package
+to implement enhanced output that logs errors and warnings instead of
+failing. When you “record” (decorate) a function using
+[`record()`](https://rdrr.io/pkg/chronicler/man/record.html), it returns
+a `chronicle` object containing:
+
+- **`$value`**: Either `Just(result)` for success, or `Nothing` for
+  failure
+- **`$log_df`**: A data frame recording all operations, timings, and
+  messages
+
+Here’s a simple example:
+
+``` r
+
+library(chronicler)
+
+# Create a recorded version of sqrt
+r_sqrt <- record(sqrt)
+
+# Success case
+result <- r_sqrt(4)
+result$value
+#> Just
+#> [1] 2
+
+# Failure case: sqrt(-1) produces a warning "NaNs produced"
+# With default strict=2, warnings are treated as failures
+result <- r_sqrt(-1)
+result$value
+#> Nothing
+```
+
+## The Challenge with Nix Builds
+
+Here’s the catch: when you use chronicler functions in a
+[rixpress](https://docs.ropensci.org/rixpress) pipeline, **Nix builds
+never fail**. Even when a computation produces `Nothing`, it’s still a
+valid R object that gets serialized successfully.
+
+Consider this pipeline:
+
+``` r
+
+library(rixpress)
+
+list(
+  rxp_r(
+    name = result,
+    expr = r_sqrt(-1),  # This produces a `Nothing` value, not an error!
+    user_functions = "functions.R"
+  )
+) |> rxp_populate(build = FALSE)
+```
+
+When you run
+[`rxp_make()`](https://docs.ropensci.org/rixpress/reference/rxp_make.md),
+the build succeeds! But `result` contains `Nothing`, meaning the
+computation actually failed. Without checking, you might think your
+pipeline worked perfectly.
+
+## The Solution: Automatic Chronicle Checking
+
+When `{chronicler}` is available,
+[rixpress](https://docs.ropensci.org/rixpress) automatically checks your
+pipeline outputs for `Nothing` values after every successful build. The
+[`rxp_check_chronicles()`](https://docs.ropensci.org/rixpress/reference/rxp_check_chronicles.md)
+function is called automatically by
+[`rxp_make()`](https://docs.ropensci.org/rixpress/reference/rxp_make.md):
+
+``` r
+
+# Build the pipeline - chronicle status is checked automatically!
+rxp_make()
+```
+
+After the build, you’ll see the status for each chronicle object:
+
+    Chronicle status:
+    ✓ filtered_mtcars (chronicle: OK)
+    ✓ mtcars_mpg (chronicle: OK)
+    ✓ mean_mpg (chronicle: OK)
+    ✗ sqrt_of_negative (chronicle: NOTHING)
+        Failed: sqrt
+        Message: NaNs produced
+    ✗ downstream_of_nothing (chronicle: NOTHING)
+        Failed: (anonymous)
+        Message: Pipeline failed upstream
+
+    Summary: 3 success, 0 with warnings, 2 nothing
+    Warning: 2 derivation(s) contain Nothing values!
+
+## Three-State Status System
+
+Chronicles can be in one of three states:
+
+| Symbol | State       | Meaning                                  |
+|--------|-------------|------------------------------------------|
+| ✓      | **Success** | `Just` value, no warnings or errors      |
+| ⚠      | **Warning** | `Just` value, but warnings were captured |
+| ✗      | **Nothing** | Failed computation, errors captured      |
+
+## Complete Example
+
+Here’s a complete example demonstrating the pattern. First, create
+`functions.R` with your recorded functions:
+
+``` r
+
+# functions.R
+library(chronicler)
+
+r_filter <- record(dplyr::filter)
+r_pull <- record(dplyr::pull)
+r_sqrt <- record(sqrt)
+r_mean <- record(mean)
+```
+
+Then create your pipeline in `gen-pipeline.R`:
+
+``` r
+
+library(rixpress)
+
+list(
+  # Read data (not a chronicle)
+  rxp_r_file(
+    name = mtcars,
+    path = "data/mtcars.csv",
+    read_function = \(x) read.csv(file = x, sep = "|")
+  ),
+
+  # Filter using chronicler - SUCCESS
+  rxp_r(
+    name = filtered_mtcars,
+    expr = mtcars |> r_filter(am == 1),
+    user_functions = "functions.R"
+  ),
+
+  # Pull column - SUCCESS
+  rxp_r(
+    name = mtcars_mpg,
+    expr = filtered_mtcars |> bind_record(r_pull, mpg),
+    user_functions = "functions.R"
+  ),
+
+  # Compute mean - SUCCESS
+  rxp_r(
+    name = mean_mpg,
+    expr = mtcars_mpg |> bind_record(r_mean),
+    user_functions = "functions.R"
+  ),
+
+  # Intentional failure: sqrt(-1) - NOTHING
+  rxp_r(
+    name = sqrt_of_negative,
+    expr = r_sqrt(-1),
+    user_functions = "functions.R"
+  ),
+
+  # Downstream of Nothing - also NOTHING
+  rxp_r(
+    name = downstream_of_nothing,
+    expr = sqrt_of_negative |> bind_record(r_mean),
+    user_functions = "functions.R"
+  )
+) |>
+  rxp_populate(build = FALSE)
+```
+
+Build the pipeline (chronicle status is checked automatically):
+
+``` r
+
+rxp_make()
+
+# You can also manually check chronicles at any time:
+# rxp_check_chronicles()
+```
+
+## Automatic Warnings
+
+When you read or load a chronicle with `Nothing` using
+[`rxp_read()`](https://docs.ropensci.org/rixpress/reference/rxp_read.md)
+or
+[`rxp_load()`](https://docs.ropensci.org/rixpress/reference/rxp_load.md),
+you’ll automatically get a warning:
+
+``` r
+
+rxp_read("sqrt_of_negative")
+#> Warning message:
+#> Derivation 'sqrt_of_negative' contains a chronicle with Nothing value!
+#>   Use chronicler::read_log() on this object for details.
+```
+
+This helps catch silent failures even during interactive exploration.
+
+## Best Practices
+
+1.  **Chronicle status is checked automatically** after every successful
+    build when `{chronicler}` is available. You can also run
+    [`rxp_check_chronicles()`](https://docs.ropensci.org/rixpress/reference/rxp_check_chronicles.md)
+    manually at any time.
+
+2.  **Use
+    [`chronicler::read_log()`](https://rdrr.io/pkg/chronicler/man/read_log.html)
+    for debugging**. When a chronicle contains `Nothing`, the log shows
+    exactly where and why it failed:
+
+    ``` r
+
+    result <- rxp_read("sqrt_of_negative")
+    read_log(result)
+    ```
+
+3.  **Consider the `strict` parameter**. By default (`strict = 2`),
+    chronicler treats warnings as failures. Use `strict = 1` to allow
+    warnings through while still capturing them, or `strict = 0` to
+    ignore warnings entirely.
+
+4.  **Chain operations with
+    [`bind_record()`](https://rdrr.io/pkg/chronicler/man/bind_record.html)**.
+    This properly propagates `Nothing` values through the pipeline—if
+    upstream fails, downstream automatically becomes `Nothing` too.
+
+## When to Use Chronicler
+
+Use chronicler with rixpress when you want:
+
+- **Resilient pipelines** that continue even when parts fail
+- **Detailed logging** of all operations and their outcomes
+- **Explicit failure handling** rather than silent errors
+
+Don’t use chronicler when:
+
+- You want builds to fail fast on any error (the default Nix behaviour)
+- You need maximum performance (chronicler adds overhead)
+- Your pipeline is simple and errors are rare
+
+## Further Reading
+
+- [chronicler package
+  documentation](https://b-rodrigues.github.io/chronicler/)
+- Example project: `chronicler_example` in the
+  [rixpress_demos](https://github.com/b-rodrigues/rixpress_demos)
+  repository

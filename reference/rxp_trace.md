@@ -1,0 +1,55 @@
+# Trace Lineage of Derivations
+
+Trace Lineage of Derivations
+
+## Usage
+
+``` r
+rxp_trace(
+  name = NULL,
+  dag_file = file.path("_rixpress", "dag.json"),
+  transitive = TRUE,
+  include_self = FALSE
+)
+```
+
+## Arguments
+
+- name:
+
+  Character, defaults to NULL. Name of the derivation to inspect. If
+  NULL, the function prints the whole pipeline (inverted global view).
+
+- dag_file:
+
+  Character, defaults to "\_rixpress/dag.json". Path to dag.json.
+
+- transitive:
+
+  Logical, defaults to TRUE. If TRUE, show transitive closure and mark
+  transitive-only nodes with "\*". If FALSE, show immediate neighbours
+  only.
+
+- include_self:
+
+  Logical, defaults to FALSE. If TRUE, include `name` itself in the
+  results.
+
+## Value
+
+Invisibly, a named list mapping each inspected derivation name to a list
+with elements: - dependencies - reverse_dependencies The function also
+prints a tree representation to the console.
+
+## See also
+
+Other utilities:
+[`print.rxp_derivation()`](https://docs.ropensci.org/rixpress/reference/print.rxp_derivation.md),
+[`rxp_check_chronicles()`](https://docs.ropensci.org/rixpress/reference/rxp_check_chronicles.md),
+[`rxp_copy()`](https://docs.ropensci.org/rixpress/reference/rxp_copy.md),
+[`rxp_gc()`](https://docs.ropensci.org/rixpress/reference/rxp_gc.md),
+[`rxp_init()`](https://docs.ropensci.org/rixpress/reference/rxp_init.md),
+[`rxp_inspect()`](https://docs.ropensci.org/rixpress/reference/rxp_inspect.md),
+[`rxp_list_logs()`](https://docs.ropensci.org/rixpress/reference/rxp_list_logs.md),
+[`rxp_load()`](https://docs.ropensci.org/rixpress/reference/rxp_load.md),
+[`rxp_read()`](https://docs.ropensci.org/rixpress/reference/rxp_read.md)

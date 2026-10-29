@@ -1,0 +1,296 @@
+# Setting Up a Pipeline from Scratch
+
+This vignette demonstrates how to build a
+[rixpress](https://docs.ropensci.org/rixpress) pipeline that only uses R
+derivations. For multilingual pipelines, read the next vignette
+[`vignette("polyglot")`](https://docs.ropensci.org/rixpress/articles/polyglot.md).
+
+If you are more of a visual learner, you can also watch [this
+video](https://www.youtube.com/watch?v=IXKd5ySzzSU) which will walk you
+through the contents of this vignette.
+
+## Installing the required software
+
+If you’re using [rixpress](https://docs.ropensci.org/rixpress), you’re
+likely already familiar with its sister package
+[rix](https://docs.ropensci.org/rix/), which helps you set up
+reproducible development environments for R or Python using `Nix`. As
+such, you likely already have `Nix` installed on your system. If not,
+read the following [`{rix}` vignette to learn how to set up `Nix` on
+Linux or
+Windows](https://docs.ropensci.org/rix/articles/installing-r-packages.html),
+or [this one if you’re on
+macOS](https://docs.ropensci.org/rix/articles/setting-up-macos.html).
+
+Once `Nix` is installed (as well as `cachix`, and the `rstats-on-nix`
+cache configured), you’re ready to go.
+
+## Bootstrapping a project
+
+In this vignette, I’m going to assume the following:
+
+- you’re already familiar with `Nix` thanks to
+  [rix](https://docs.ropensci.org/rix/);
+- you only use `Nix` to manage R environments for data science projects
+  (in other words, you don’t have a system-installed R);
+- you have `Nix` installed on your system as well as `cachix` and
+  configured the `rstats-on-nix` cache;
+- you’ve read through the previous two vignettes.
+
+If you’re already familiar with [rix](https://docs.ropensci.org/rix/),
+you likely know that you can use the following command in your project’s
+root directory to get access to a temporary `Nix` shell that provides R,
+[rix](https://docs.ropensci.org/rix/), and
+[rixpress](https://docs.ropensci.org/rixpress):
+
+``` bash
+nix-shell --expr "$(curl -sl https://raw.githubusercontent.com/ropensci/rix/main/inst/extdata/default.nix)"
+```
+
+This will start a `Nix` session. Type `R` to start an R session, and
+then type:
+
+``` r
+
+library(rixpress)
+
+rxp_init()
+```
+
+This will write two files to the root of your project, `gen-env.R` and
+`gen-pipeline.R`. `gen-env.R` will look like this:
+
+``` r
+
+# This script defines the default environment the pipeline runs in.
+# Add the required packages to execute the code necessary for each derivation.
+# If you want to create visual representations of the pipeline, consider adding
+# `{visNetwork}` and `{ggdag}` to the list of R packages.
+library(rix)
+
+# Define execution environment
+rix(
+  date = NULL,
+  r_pkgs = NULL,
+  py_conf = NULL,
+  git_pkgs = list(
+    "package_name" = "rixpress",
+    "repo_url" = "https://github.com/ropensci/rixpress",
+    "commit" = "HEAD"
+  ),
+  ide = "none",
+  project_path = "."
+)
+```
+
+To execute a [rixpress](https://docs.ropensci.org/rixpress) pipeline,
+the environment needs [rixpress](https://docs.ropensci.org/rixpress) to
+be available, but you likely require other packages. Let’s add
+[dplyr](https://dplyr.tidyverse.org) and [igraph](https://r.igraph.org/)
+(which is needed to view the graphical representation of the pipeline’s
+DAG). Open `gen-env.R` in any text editor and change it to:
+
+``` r
+
+library(rix)
+
+# Define execution environment
+rix(
+  date = "2025-04-11",
+  r_pkgs = c("dplyr", "igraph"),
+  git_pkgs = list(
+    package_name = "rixpress",
+    repo_url = "https://github.com/ropensci/rixpress",
+    commit = "HEAD"
+  ),
+  ide = "rstudio",
+  project_path = ".",
+  overwrite = TRUE
+)
+```
+
+I’ve added a date, which means that the versions of R and R packages
+will be set to the versions available on this date from CRAN, and I’ve
+added [dplyr](https://dplyr.tidyverse.org) and
+[igraph](https://r.igraph.org/). I’ve also added RStudio as the IDE. I
+can now go back to my temporary `Nix` shell and run `Rscript gen-env.R`
+(or `source("gen-env.R")` inside an R session). This will create a
+`default.nix` file in my project’s folder: this is a `Nix` file that
+defines my environment. I can now leave my temporary shell by first
+quitting R (if applicable), then typing CTRL-D or `exit`. Then I can
+build my development environment using `nix-build`. Let’s now enter our
+development shell by typing `nix-shell` and launch RStudio (or whatever
+editor you want to use) and open `gen-pipeline.R`:
+
+``` r
+
+library(rixpress)
+library(igraph)
+
+list(
+  rxp_r_file(
+    name = NULL,
+    path = NULL,
+    read_function = \(x) read.csv(file = x, sep = ",")
+  ),
+  rxp_r(
+    name = NULL,
+    expr = NULL
+  )
+) |> rxp_populate(build = TRUE)
+```
+
+This template starts with
+[`rxp_r_file()`](https://docs.ropensci.org/rixpress/reference/rxp_r_file.md)
+to load data, and
+[`rxp_r()`](https://docs.ropensci.org/rixpress/reference/rxp_r.md) to
+define a step. These two derivations are put into a list and then passed
+to
+[`rxp_populate()`](https://docs.ropensci.org/rixpress/reference/rxp_populate.md).
+Let’s start by importing data and filtering it using
+[dplyr](https://dplyr.tidyverse.org):
+
+``` r
+
+library(rixpress)
+library(igraph)
+
+list(
+  rxp_r_file(
+    name = mtcars,
+    path = 'data/mtcars.csv',
+    read_function = \(x) (read.csv(file = x, sep = "|"))
+  ),
+
+  rxp_r(
+    name = filtered_mtcars,
+    expr = filter(mtcars, am == 1)
+  )
+) |> rxp_populate(build = TRUE)
+```
+
+Select the pipeline and run it (I highly recommend you use keyboard
+shortcuts to quickly run the above code when working interactively). If
+everything went well, you will see the following in your R console:
+
+``` r
+Build process started...
+
++ > mtcars building
++ > filtered_mtcars building
+✓ filtered_mtcars built
+✓ mtcars built
+✓ pipeline completed [2 completed, 0 errored]
+Build successful! Run `rxp_inspect()` for a summary.
+Read individual derivations using `rxp_read()` or
+load them into the global environment using `rxp_load()`.
+```
+
+Let’s inspect the pipeline outputs using
+[`rxp_inspect()`](https://docs.ropensci.org/rixpress/reference/rxp_inspect.md):
+
+``` r
+       derivation build_success
+1 all-derivations          TRUE
+2 filtered_mtcars          TRUE
+3          mtcars          TRUE
+                                                         path       output
+1 /nix/store/xc67xyqw8ziggwdk7hhiqsgh7hxfv4k1-all-derivations filtered....
+2 /nix/store/njv7zpgiq9p843dixkcg1dpryr5rn6h4-filtered_mtcars filtered....
+3          /nix/store/gqf4l5jpbjdv1by0vw6vphhlrfa0600a-mtcars       mtcars
+  error_message
+1          <NA>
+2          <NA>
+3          <NA>
+```
+
+Three things were built: `mtcars`, which is simply the source data set;
+`filtered_mtcars`, which is the filtered data; and an object you didn’t
+define called `all-derivations`. This last object is mostly for internal
+[rixpress](https://docs.ropensci.org/rixpress) use, and you can safely
+ignore it.
+
+Let’s now use
+[`rxp_read()`](https://docs.ropensci.org/rixpress/reference/rxp_read.md)
+to take a look at `filtered_mtcars`:
+
+``` r
+
+rxp_read("filtered_mtcars")
+```
+
+``` r
+                mpg cyl  disp  hp drat    wt  qsec vs am gear carb
+Mazda RX4      21.0   6 160.0 110 3.90 2.620 16.46  0  1    4    4
+Mazda RX4 Wag  21.0   6 160.0 110 3.90 2.875 17.02  0  1    4    4
+Datsun 710     22.8   4 108.0  93 3.85 2.320 18.61  1  1    4    1
+Fiat 128       32.4   4  78.7  66 4.08 2.200 19.47  1  1    4    1
+Honda Civic    30.4   4  75.7  52 4.93 1.615 18.52  1  1    4    2
+Toyota Corolla 33.9   4  71.1  65 4.22 1.835 19.90  1  1    4    1
+Fiat X1-9      27.3   4  79.0  66 4.08 1.935 18.90  1  1    4    1
+Porsche 914-2  26.0   4 120.3  91 4.43 2.140 16.70  0  1    5    2
+Lotus Europa   30.4   4  95.1 113 3.77 1.513 16.90  1  1    5    2
+Ford Pantera L 15.8   8 351.0 264 4.22 3.170 14.50  0  1    5    4
+Ferrari Dino   19.7   6 145.0 175 3.62 2.770 15.50  0  1    5    6
+Maserati Bora  15.0   8 301.0 335 3.54 3.570 14.60  0  1    5    8
+Volvo 142E     21.4   4 121.0 109 4.11 2.780 18.60  1  1    4    2
+```
+
+You can save this object like so:
+
+``` r
+
+filtered_mtcars <- rxp_read("filtered_mtcars")
+```
+
+or you can simply use `rxp_load("filtered_mtcars")` which will achieve
+the same result.
+
+You can now manipulate this object interactively, as usual. You might
+still not quite know what the next step should be (maybe there are
+missing values you need to handle somehow, or another such cleaning
+step), but once you know the next steps, you can write the next
+derivation:
+
+``` r
+
+library(rixpress)
+library(igraph)
+
+list(
+  rxp_r_file(
+    name = mtcars,
+    path = 'data/mtcars.csv',
+    read_function = \(x) (read.csv(file = x, sep = "|"))
+  ),
+
+  rxp_r(
+    name = filtered_mtcars,
+    expr = filter(mtcars, am == 1)
+  ),
+
+  rxp_r(
+    name = mtcars_mpg,
+    expr = select(filtered_mtcars, mpg)
+  )
+) |>
+  rxp_populate(build = TRUE)
+```
+
+Rebuild the pipeline. The first two steps are skipped because they’re
+already available in the `Nix` store. You can now start the *inspect -\>
+try stuff -\> define derivation -\> build pipeline* loop again for the
+next derivation.
+
+You now know the basics of using
+[rixpress](https://docs.ropensci.org/rixpress) to build a simple
+pipeline.
+
+The next vignette
+[`vignette("polyglot")`](https://docs.ropensci.org/rixpress/articles/polyglot.md)
+explains how to build a pipeline with both R and Python derivations, as
+well as compiling a Quarto document.
+
+If you don’t need to work with multiple languages, you can continue with
+the vignette
+[`vignette("debugging")`](https://docs.ropensci.org/rixpress/articles/debugging.md).

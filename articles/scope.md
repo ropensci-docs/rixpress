@@ -1,0 +1,146 @@
+# Scope and Roadmap
+
+## Overview
+
+`rixpress` focuses on “micropipelines”: pipelines executed on a single
+machine for small-to-medium projects, with reproducible environments via
+Nix and a simple, pragmatic user experience from R. This document
+clarifies what `rixpress` is and is not, and lays out a short roadmap so
+users and contributors can align expectations and proposals.
+
+Key goals:
+
+- Single-machine, small-to-medium pipelines (“micropipelines”).
+- Reproducible builds pinned by Nix.
+- Simple DAG wiring.
+- Polyglot steps where R is first-class, with pragmatic Python/Julia
+  interop.
+- CI-friendly (e.g., GitHub Actions) without requiring distributed
+  stacks.
+
+## What `rixpress` is
+
+- A thin, opinionated bridge between R and Nix for building pipelines
+  locally.
+- A way to define steps (R / Python / Julia / Quarto/Rmd) as Nix
+  derivations.
+- A reproducible mechanism to:
+  - parse a DAG from the steps,
+  - generate and build a Nix pipeline,
+  - store artifacts in the Nix store, and
+  - read/load/copy outputs back into R (or interoperate with
+    Python/Julia).
+- A “just enough” visualisation layer to inspect the DAG and understand
+  dependencies, geared toward small-to-medium graphs.
+
+## What `rixpress` is not
+
+- A distributed workflow engine (no cluster schedulers, no multi-node
+  orchestration).
+- A long-running workflow daemon, task scheduler, or job server.
+- A general-purpose ETL/ELT framework for very large datasets or
+  streaming workloads.
+- A feature-rich dashboarding / progress-tracking UI.
+- A pluggable storage abstraction beyond the Nix store.
+- An alternative DSL with complex branching semantics or dynamic targets
+  (beyond what Nix + the current design support).
+
+## Primary audience
+
+- R users (and teams) who want strong reproducibility via Nix without
+  leaving R.
+- Python users that are not satisfied with current solutions for
+  micropipelines, and who are ok with defining the pipeline as an R
+  script.
+- Projects that fit on a developer’s workstation or CI runner:
+  - Research, analysis, reporting.
+  - Model training/evaluation at modest scales.
+  - Lightweight ETL on bounded datasets.
+- Teams that occasionally mix R steps with Python/Julia, without
+  adopting a heavyweight orchestration platform.
+
+## In-scope features (current)
+
+- Define R/Python/Julia/Quarto steps as derivations (`rxp_*()`).
+- Generate and build a Nix pipeline
+  ([`rxp_populate()`](https://docs.ropensci.org/rixpress/reference/rxp_populate.md),
+  [`rxp_make()`](https://docs.ropensci.org/rixpress/reference/rxp_make.md)).
+- Serialise/deserialise and basic interop (R↔︎Python/Julia) via common
+  formats/APIs.
+- Read/load/copy outputs from the Nix store
+  ([`rxp_read()`](https://docs.ropensci.org/rixpress/reference/rxp_read.md),
+  [`rxp_load()`](https://docs.ropensci.org/rixpress/reference/rxp_load.md),
+  [`rxp_copy()`](https://docs.ropensci.org/rixpress/reference/rxp_copy.md)).
+- DAG generation and simple visual inspection (local and CI-friendly).
+- CI support (GitHub Actions) with cache import/export helpers.
+
+## Out-of-scope features (not planned)
+
+- Cluster execution, distributed scheduling, or remote executors.
+- Complex DSLs for branching, runtime expansion, or heavy dynamic
+  targets.
+- Pluggable storage backends other than the Nix store.
+- High-frequency streaming pipelines, message brokers, or long-running
+  services.
+- Large-scale progress servers/dashboards.
+
+But depending on [rixpress](https://docs.ropensci.org/rixpress)’s
+success and outside contributions, these features might be implemented
+sometime in the future.
+
+## Roadmap
+
+This roadmap lists “near-term”, “maybe later”, and “not planned” items
+to clarify priorities. Timelines are indicative and may change.
+
+### Near-term (next minor releases)
+
+- Execution of several interconnected pipelines from a single script.
+
+### Maybe later
+
+- Visualisation: Mermaid-first DAG output (portable, text-first), with
+  simple CI rendering. Keep a minimal interactive option for large DAGs.
+- Lightweight progress summaries: per-derivation timestamps in build
+  logs and simple summaries.
+- Optional: a separate low-level Nix client package if deeper
+  integrations are needed across `rix` and `rixpress`.
+
+### Not planned
+
+- Distributed compute, cluster backends, server-side schedulers.
+- Alternative storage engines or backends beyond the Nix store.
+- Full-featured dashboards or heavy progress monitoring services.
+
+## How to propose new features
+
+Before filing a feature request, please:
+
+1.  Read this scope and roadmap.
+2.  Check existing issues and discussions.
+3.  If your request is out-of-scope, consider whether it belongs in:
+    - a separate package,
+    - an optional companion tool, or
+    - a PR to documentation (e.g., “how-to” under current scope).
+
+When you file an issue, please: - Explain your use case and scale
+(single machine, data sizes). - Clarify why the feature belongs in
+`rixpress` vs. alternatives. - Suggest a minimal interface that
+preserves simplicity and reproducibility.
+
+## Related projects and inspiration
+
+- [targets](https://docs.ropensci.org/targets/), whose user-experience
+  [rixpress](https://docs.ropensci.org/rixpress) takes the most
+  inspiration from.
+- Micropipelines inspirations like Ploomber’s local-first approach
+  (Python).
+- Nix and nixpkgs for declarative, reproducible environments.
+- [rix](https://docs.ropensci.org/rix/) for defining Nix environments
+  from R.
+
+## Links
+
+- README: <https://github.com/ropensci/rixpress#readme>
+- Website: <https://docs.ropensci.org/rixpress/>
+- Demos: <https://github.com/b-rodrigues/rixpress_demos>
